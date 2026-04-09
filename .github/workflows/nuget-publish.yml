@@ -31,7 +31,10 @@ jobs:
 
       - name: Build Rust parser
         working-directory: src/skillmatch-parser
-        shell: bash
+        shell: cmd
+        env:
+          CC: cl
+          CXX: cl
         run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Upload native lib
