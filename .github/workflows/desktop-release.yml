@@ -1,0 +1,347 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      skip_mac:
+        description: 'Skip macOS build (useful while Apple cert is pending)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  NODE_VERSION: '20'
+  VITE_API_BASE_URL: 'https://api.devproven.com'
+
+jobs:
+  # ─── Windows ────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone frontend (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.JS_REPO }}
+          path: skillmatch-js
+          token: ${{ secrets.JS_REPO_PAT }}
+
+      - name: Clone analyzer (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.DOTNET_REPO }}
+          path: skillmatch-dotnet
+          token: ${{ secrets.DOTNET_REPO_PAT }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Rust parser
+        working-directory: skillmatch-dotnet/src/skillmatch-parser
+        shell: bash
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          mkdir -p ../../../skillmatch-js/apps/desktop/src-tauri/binaries
+          cp target/x86_64-pc-windows-msvc/release/skillmatch_parser.dll \
+             ../../../skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Build .NET analyzer
+        shell: bash
+        run: |
+          dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
+            -c Release -r win-x64 --self-contained true -o publish \
+            -p:PublishAot=false -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true -p:TrimMode=link \
+            -p:IncludeNativeLibrariesForSelfExtract=true
+          cp publish/devproven.exe \
+             skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-pc-windows-msvc.exe
+          ls -la skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Download Trivy
+        shell: bash
+        run: |
+          cd skillmatch-js/apps/desktop/src-tauri/binaries
+          TRIVY_VERSION="0.58.0"
+          curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Windows-64bit.zip" -o trivy.zip
+          unzip -o trivy.zip trivy.exe
+          mv trivy.exe trivy-x86_64-pc-windows-msvc.exe
+          rm trivy.zip
+
+      - name: Install Node dependencies
+        working-directory: skillmatch-js
+        run: pnpm install
+
+      - name: Build Tauri
+        working-directory: skillmatch-js/apps/desktop
+        env:
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+        run: pnpm tauri build --target x86_64-pc-windows-msvc
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            skillmatch-js/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            skillmatch-js/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+
+  # ─── macOS ──────────────────────────────────────────────────────────
+  build-macos:
+    if: ${{ !inputs.skip_mac }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone frontend (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.JS_REPO }}
+          path: skillmatch-js
+          token: ${{ secrets.JS_REPO_PAT }}
+
+      - name: Clone analyzer (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.DOTNET_REPO }}
+          path: skillmatch-dotnet
+          token: ${{ secrets.DOTNET_REPO_PAT }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build Rust parser
+        working-directory: skillmatch-dotnet/src/skillmatch-parser
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          mkdir -p ../../../skillmatch-js/apps/desktop/src-tauri/binaries
+          cp target/aarch64-apple-darwin/release/libskillmatch_parser.dylib \
+             ../../../skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Build .NET analyzer
+        run: |
+          dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
+            -c Release -r osx-arm64 --self-contained true -o publish \
+            -p:PublishAot=false -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true -p:TrimMode=link \
+            -p:IncludeNativeLibrariesForSelfExtract=true
+          cp publish/devproven \
+             skillmatch-js/apps/desktop/src-tauri/binaries/devproven-aarch64-apple-darwin
+          chmod +x skillmatch-js/apps/desktop/src-tauri/binaries/devproven-aarch64-apple-darwin
+          ls -la skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Download Trivy
+        run: |
+          cd skillmatch-js/apps/desktop/src-tauri/binaries
+          TRIVY_VERSION="0.58.0"
+          curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_macOS-ARM64.tar.gz" | tar xz trivy
+          mv trivy trivy-aarch64-apple-darwin
+          chmod +x trivy-aarch64-apple-darwin
+
+      # macOS codesigning — uncomment when Apple Developer cert is ready
+      # - name: Import Apple certificate
+      #   env:
+      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+      #     security create-keychain -p actions build.keychain
+      #     security default-keychain -s build.keychain
+      #     security unlock-keychain -p actions build.keychain
+      #     security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+      #     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+
+      - name: Install Node dependencies
+        working-directory: skillmatch-js
+        run: pnpm install
+
+      - name: Build Tauri
+        working-directory: skillmatch-js/apps/desktop
+        env:
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+          # Uncomment when Apple cert is ready:
+          # APPLE_SIGNING_IDENTITY: "Developer ID Application: Your Company (TEAMID)"
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri build --target aarch64-apple-darwin
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: |
+            skillmatch-js/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            skillmatch-js/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app
+
+  # ─── Linux ──────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone frontend (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.JS_REPO }}
+          path: skillmatch-js
+          token: ${{ secrets.JS_REPO_PAT }}
+
+      - name: Clone analyzer (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.DOTNET_REPO }}
+          path: skillmatch-dotnet
+          token: ${{ secrets.DOTNET_REPO_PAT }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build Rust parser
+        working-directory: skillmatch-dotnet/src/skillmatch-parser
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+          mkdir -p ../../../skillmatch-js/apps/desktop/src-tauri/binaries
+          cp target/x86_64-unknown-linux-gnu/release/libskillmatch_parser.so \
+             ../../../skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Build .NET analyzer
+        run: |
+          dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
+            -c Release -r linux-x64 --self-contained true -o publish \
+            -p:PublishAot=false -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true -p:TrimMode=link \
+            -p:IncludeNativeLibrariesForSelfExtract=true
+          cp publish/devproven \
+             skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-unknown-linux-gnu
+          chmod +x skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-unknown-linux-gnu
+          ls -la skillmatch-js/apps/desktop/src-tauri/binaries/
+
+      - name: Download Trivy
+        run: |
+          cd skillmatch-js/apps/desktop/src-tauri/binaries
+          TRIVY_VERSION="0.58.0"
+          curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar xz trivy
+          mv trivy trivy-x86_64-unknown-linux-gnu
+          chmod +x trivy-x86_64-unknown-linux-gnu
+
+      - name: Install Node dependencies
+        working-directory: skillmatch-js
+        run: pnpm install
+
+      - name: Build Tauri
+        working-directory: skillmatch-js/apps/desktop
+        env:
+          VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
+        run: pnpm tauri build --target x86_64-unknown-linux-gnu
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            skillmatch-js/apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+            skillmatch-js/apps/desktop/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+
+  # ─── Create GitHub Release ──────────────────────────────────────────
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    # If mac was skipped, still release with win+linux
+    if: always() && needs.build-windows.result == 'success' && needs.build-linux.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: false
+          name: DevProven Desktop ${{ github.ref_name }}
+          body: |
+            ## DevProven Desktop ${{ github.ref_name }}
+
+            ### Downloads
+
+            **Windows**
+            - `.msi` — Standard Windows installer
+            - `.exe` — NSIS installer (recommended)
+
+            **macOS** (Apple Silicon)
+            - `.dmg` — Disk image
+
+            **Linux**
+            - `.AppImage` — Portable (no install needed)
+            - `.deb` — Debian/Ubuntu package
+
+            > Source code packages below are empty — this is a release-only repository.
+            > Visit [devproven.com](https://devproven.com) for more information.
+
+            ### Requirements
+            - Internet connection (analyses upload to DevProven API)
+            - Sign in via browser or API key
+
+            ### Getting started
+            1. Install DevProven Desktop
+            2. Click "Sign in with browser"
+            3. Approve in your browser
+            4. Add a repository and run analysis
+            5. View your Developer DNA at [devproven.com](https://devproven.com)
+          files: |
+            artifacts/**/*.msi
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
