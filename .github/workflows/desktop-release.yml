@@ -82,7 +82,7 @@ jobs:
         shell: bash
         run: |
           cd skillmatch-js/apps/desktop/src-tauri/binaries
-          TRIVY_VERSION="0.58.0"
+          TRIVY_VERSION="0.69.3"
           curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Windows-64bit.zip" -o trivy.zip
           unzip -o trivy.zip trivy.exe
           mv trivy.exe trivy-x86_64-pc-windows-msvc.exe
@@ -166,7 +166,7 @@ jobs:
       - name: Download Trivy
         run: |
           cd skillmatch-js/apps/desktop/src-tauri/binaries
-          TRIVY_VERSION="0.58.0"
+          TRIVY_VERSION="0.69.3"
           curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_macOS-ARM64.tar.gz" | tar xz trivy
           mv trivy trivy-aarch64-apple-darwin
           chmod +x trivy-aarch64-apple-darwin
@@ -273,7 +273,7 @@ jobs:
       - name: Download Trivy
         run: |
           cd skillmatch-js/apps/desktop/src-tauri/binaries
-          TRIVY_VERSION="0.58.0"
+          TRIVY_VERSION="0.69.3"
           curl -sL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar xz trivy
           mv trivy trivy-x86_64-unknown-linux-gnu
           chmod +x trivy-x86_64-unknown-linux-gnu
