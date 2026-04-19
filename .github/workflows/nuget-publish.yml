@@ -140,8 +140,17 @@ jobs:
           echo "=== Native libs ==="
           find native -type f | sort
 
+      - name: Extract version from tag
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/cli-v* ]]; then
+            echo "version=${GITHUB_REF_NAME#cli-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-manual.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Pack NuGet
-        run: dotnet pack src/SkillMatch.Cli/SkillMatch.Cli.csproj -c Release -o nupkg
+        run: dotnet pack src/SkillMatch.Cli/SkillMatch.Cli.csproj -c Release -o nupkg /p:Version=${{ steps.ver.outputs.version }}
 
       - name: Verify package contents
         run: |
