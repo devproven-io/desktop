@@ -21,6 +21,10 @@ env:
   VITE_API_BASE_URL: 'https://api.devproven.com'
   VITE_WEB_APP_URL: 'https://devproven.com'
 
+# Shared shell snippet: derive a real CLI version from the desktop tag
+# (v0.2.9 -> 0.2.9) so the bundled analyzer reports something useful in
+# about dialogs and logs. Falls back to 0.0.0-dev for manual dispatch runs.
+
 jobs:
   # ─── Windows ────────────────────────────────────────────────────────
   build-windows:
@@ -70,11 +74,18 @@ jobs:
       - name: Build .NET analyzer
         shell: bash
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            CLI_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            CLI_VERSION="0.0.0-dev"
+          fi
+          echo "Building bundled CLI with version $CLI_VERSION"
           dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
             -c Release -r win-x64 --self-contained true -o publish \
             -p:PublishAot=false -p:PublishSingleFile=true \
             -p:PublishTrimmed=true -p:TrimMode=link \
-            -p:IncludeNativeLibrariesForSelfExtract=true
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version=$CLI_VERSION
           cp publish/devproven.exe \
              skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-pc-windows-msvc.exe
           ls -la skillmatch-js/apps/desktop/src-tauri/binaries/
@@ -160,11 +171,18 @@ jobs:
 
       - name: Build .NET analyzer
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            CLI_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            CLI_VERSION="0.0.0-dev"
+          fi
+          echo "Building bundled CLI with version $CLI_VERSION"
           dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
             -c Release -r osx-arm64 --self-contained true -o publish \
             -p:PublishAot=false -p:PublishSingleFile=true \
             -p:PublishTrimmed=true -p:TrimMode=link \
-            -p:IncludeNativeLibrariesForSelfExtract=true
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version=$CLI_VERSION
           cp publish/devproven \
              skillmatch-js/apps/desktop/src-tauri/binaries/devproven-aarch64-apple-darwin
           chmod +x skillmatch-js/apps/desktop/src-tauri/binaries/devproven-aarch64-apple-darwin
@@ -270,11 +288,18 @@ jobs:
 
       - name: Build .NET analyzer
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            CLI_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            CLI_VERSION="0.0.0-dev"
+          fi
+          echo "Building bundled CLI with version $CLI_VERSION"
           dotnet publish skillmatch-dotnet/src/SkillMatch.Cli/SkillMatch.Cli.csproj \
             -c Release -r linux-x64 --self-contained true -o publish \
             -p:PublishAot=false -p:PublishSingleFile=true \
             -p:PublishTrimmed=true -p:TrimMode=link \
-            -p:IncludeNativeLibrariesForSelfExtract=true
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version=$CLI_VERSION
           cp publish/devproven \
              skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-unknown-linux-gnu
           chmod +x skillmatch-js/apps/desktop/src-tauri/binaries/devproven-x86_64-unknown-linux-gnu
