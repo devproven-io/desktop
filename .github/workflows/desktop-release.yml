@@ -151,6 +151,43 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
+      # Independently verify every msi/exe is actually signed before we ship.
+      # The Azure action returning success only proves it called the signing
+      # endpoint — it doesn't catch a corrupt sig, a missing timestamp, or a
+      # cert-chain that doesn't reach a trusted Windows root. This step uses
+      # PowerShell's Get-AuthenticodeSignature (same cryptographic checks the
+      # OS does at install time) and fails the job if any artifact comes back
+      # as anything other than "Valid" with a non-null timestamper. A green
+      # CI run from here on means users WILL see a valid signature.
+      - name: Verify Windows installers are signed
+        shell: pwsh
+        run: |
+          $bundleDir = "skillmatch-js/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle"
+          $artifacts = Get-ChildItem -Path $bundleDir -Recurse -Include *.msi, *.exe
+          if ($artifacts.Count -eq 0) {
+            Write-Error "No .msi/.exe artifacts found under $bundleDir"
+            exit 1
+          }
+          $failed = $false
+          foreach ($file in $artifacts) {
+            $sig = Get-AuthenticodeSignature $file.FullName
+            $signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '<none>' }
+            $hasTimestamp = $null -ne $sig.TimeStamperCertificate
+            if ($sig.Status -ne 'Valid') {
+              Write-Error "FAIL  [$($sig.Status)] $($file.Name) — signer: $signer"
+              $failed = $true
+            } elseif (-not $hasTimestamp) {
+              # An untimestamped sig stops being valid the moment the cert
+              # expires, which silently breaks installs months down the line.
+              Write-Error "FAIL  [no timestamp] $($file.Name) — signer: $signer"
+              $failed = $true
+            } else {
+              Write-Host "OK    [$($sig.Status), timestamped] $($file.Name)"
+              Write-Host "      signer: $signer"
+            }
+          }
+          if ($failed) { exit 1 }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
