@@ -15,7 +15,6 @@ permissions:
   contents: write
 
 env:
-  DOTNET_VERSION: '10.0.x'
   NODE_VERSION: '22'
   PNPM_VERSION: '9.11.0'
   VITE_API_BASE_URL: 'https://api.devproven.com'
@@ -48,7 +47,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          # SDK version comes from the analyzer's global.json (10.0 GA pin
+          # with allowPrerelease=false), so CI builds match local dev.
+          global-json-file: skillmatch-dotnet/global.json
 
       - uses: actions/setup-node@v4
         with:
@@ -219,7 +220,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          # SDK version comes from the analyzer's global.json (10.0 GA pin
+          # with allowPrerelease=false), so CI builds match local dev.
+          global-json-file: skillmatch-dotnet/global.json
 
       - uses: actions/setup-node@v4
         with:
@@ -355,7 +358,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          # SDK version comes from the analyzer's global.json (10.0 GA pin
+          # with allowPrerelease=false), so CI builds match local dev.
+          global-json-file: skillmatch-dotnet/global.json
 
       - uses: actions/setup-node@v4
         with:

@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  DOTNET_VERSION: '10.0.x'
-
 jobs:
   # Build Rust native parser on each platform in parallel
   build-native-windows:
@@ -112,7 +109,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          # Pinned via global.json in the analyzer repo so CI tracks the
+          # same 10.0 GA SDK as local dev (allowPrerelease=false).
+          global-json-file: global.json
 
       # Download all native libs and place in expected native/ directory structure
       - uses: actions/download-artifact@v4
