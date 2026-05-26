@@ -201,6 +201,9 @@ jobs:
   build-macos:
     if: ${{ !inputs.skip_mac }}
     runs-on: macos-latest
+    # macOS notarization should finish in <25 min. 45 min cap catches
+    # Apple Notary Service hangs (e.g. when DSA trader status pending).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
