@@ -283,6 +283,22 @@ jobs:
           security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
 
+      # Tauri auto-signs Contents/MacOS/* (devproven, trivy, devproven-desktop)
+      # and the .app wrapper, but does NOT sign .dylib helpers in
+      # Contents/Resources/binaries/. We pre-sign them here with hardened
+      # runtime + secure timestamp — the codesign attrs travel along when
+      # Tauri copies the dylib into the bundle, and Tauri's final .app sign
+      # (non-recursive) leaves them intact.
+      - name: Sign helper binaries (dylib)
+        env:
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Jkodez Innovations Oy (74RS4MJ2T8)"
+        run: |
+          codesign --force --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            skillmatch-js/apps/desktop/src-tauri/binaries/libskillmatch_parser.dylib
+          codesign --verify --verbose \
+            skillmatch-js/apps/desktop/src-tauri/binaries/libskillmatch_parser.dylib
+
       - name: Sync desktop package version from tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
