@@ -271,18 +271,17 @@ jobs:
           mv trivy trivy-aarch64-apple-darwin
           chmod +x trivy-aarch64-apple-darwin
 
-      # macOS codesigning — uncomment when Apple Developer cert is ready
-      # - name: Import Apple certificate
-      #   env:
-      #     APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #   run: |
-      #     echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-      #     security create-keychain -p actions build.keychain
-      #     security default-keychain -s build.keychain
-      #     security unlock-keychain -p actions build.keychain
-      #     security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-      #     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
 
       - name: Sync desktop package version from tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -314,11 +313,10 @@ jobs:
           VITE_WEB_APP_URL: ${{ env.VITE_WEB_APP_URL }}
           CC: clang
           CXX: clang++
-          # Uncomment when Apple cert is ready:
-          # APPLE_SIGNING_IDENTITY: "Developer ID Application: Your Company (TEAMID)"
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Jkodez Innovations Oy (74RS4MJ2T8)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm tauri build --target aarch64-apple-darwin
 
       - name: Upload artifacts
