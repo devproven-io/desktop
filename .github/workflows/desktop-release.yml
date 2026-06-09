@@ -127,6 +127,15 @@ jobs:
         working-directory: skillmatch-js
         run: pnpm install
 
+      # Build the desktop's workspace dependencies (shared-types, core-domain,
+      # ui) before tauri's beforeBuildCommand runs `vite build`. Their package
+      # `main` points at dist/, which is gitignored, so a fresh checkout has no
+      # dist and vite fails: "Failed to resolve entry for @devproven/shared-types".
+      # `^...` = deps of desktop, not desktop itself. turbo orders via dependsOn.
+      - name: Build workspace packages
+        working-directory: skillmatch-js
+        run: pnpm turbo run build --filter=@devproven/desktop^...
+
       - name: Build Tauri
         working-directory: skillmatch-js/apps/desktop
         env:
@@ -325,6 +334,15 @@ jobs:
         working-directory: skillmatch-js
         run: pnpm install
 
+      # Build the desktop's workspace dependencies (shared-types, core-domain,
+      # ui) before tauri's beforeBuildCommand runs `vite build`. Their package
+      # `main` points at dist/, which is gitignored, so a fresh checkout has no
+      # dist and vite fails: "Failed to resolve entry for @devproven/shared-types".
+      # `^...` = deps of desktop, not desktop itself. turbo orders via dependsOn.
+      - name: Build workspace packages
+        working-directory: skillmatch-js
+        run: pnpm turbo run build --filter=@devproven/desktop^...
+
       - name: Build Tauri
         working-directory: skillmatch-js/apps/desktop
         env:
@@ -448,6 +466,15 @@ jobs:
       - name: Install Node dependencies
         working-directory: skillmatch-js
         run: pnpm install
+
+      # Build the desktop's workspace dependencies (shared-types, core-domain,
+      # ui) before tauri's beforeBuildCommand runs `vite build`. Their package
+      # `main` points at dist/, which is gitignored, so a fresh checkout has no
+      # dist and vite fails: "Failed to resolve entry for @devproven/shared-types".
+      # `^...` = deps of desktop, not desktop itself. turbo orders via dependsOn.
+      - name: Build workspace packages
+        working-directory: skillmatch-js
+        run: pnpm turbo run build --filter=@devproven/desktop^...
 
       - name: Build Tauri
         working-directory: skillmatch-js/apps/desktop
