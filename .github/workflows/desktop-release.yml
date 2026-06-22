@@ -343,7 +343,13 @@ jobs:
         working-directory: skillmatch-js
         run: pnpm turbo run build --filter=@devproven/desktop^...
 
-      - name: Build Tauri
+      # Build ONLY the .app bundle. Notarization is intentionally NOT done by
+      # Tauri here (no APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID in this step's env):
+      # the bundled `devproven` CLI needs hardened-runtime entitlements that we
+      # apply in an explicit re-sign step below, so notarization must happen
+      # AFTER that, not during the Tauri build. --bundles app skips Tauri's dmg
+      # (it would otherwise ship the app before our re-sign).
+      - name: Build Tauri (.app only, no notarization)
         working-directory: skillmatch-js/apps/desktop
         env:
           VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
@@ -351,10 +357,103 @@ jobs:
           CC: clang
           CXX: clang++
           APPLE_SIGNING_IDENTITY: "Developer ID Application: Jkodez Innovations Oy (74RS4MJ2T8)"
+        run: pnpm tauri build --target aarch64-apple-darwin --bundles app
+
+      # Tauri re-signs Contents/MacOS/* (including the `devproven` sidecar) with
+      # its default flags — WITHOUT the entitlements the .NET self-extract host
+      # needs. The CLI is published self-contained + single-file
+      # (IncludeNativeLibrariesForSelfExtract=true), so at startup it extracts
+      # CoreCLR's native dylibs to ~/.net/ and dlopen()s them; under the
+      # hardened runtime, library validation kills the (unsigned) extracted libs
+      # → "Failed to create CoreCLR, HRESULT: 0x80070008" (SIGKILL). Re-sign
+      # `devproven` deterministically with the CoreCLR entitlements, then reseal
+      # the .app wrapper (inside-out order — nested binary first).
+      - name: Re-sign bundled CLI with CoreCLR entitlements
+        env:
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Jkodez Innovations Oy (74RS4MJ2T8)"
+        run: |
+          set -euo pipefail
+          APP="skillmatch-js/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/DevProven.app"
+          ENT="$GITHUB_WORKSPACE/signing/devproven.entitlements"
+          echo "Re-signing $APP/Contents/MacOS/devproven with $ENT"
+          codesign --force --options runtime --timestamp \
+            --entitlements "$ENT" \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$APP/Contents/MacOS/devproven"
+          # The non-deep reseal below trusts that every OTHER nested Mach-O is
+          # already validly Developer-ID-signed. The Rust parser ships under
+          # Resources/binaries/ (pre-signed in the "Sign helper binaries" step,
+          # Tauri leaves it intact) — assert that before we reseal+notarize, so
+          # a silently-stripped signature fails loudly instead of shipping an
+          # inconsistently-sealed bundle.
+          DYLIB="$APP/Contents/Resources/binaries/libskillmatch_parser.dylib"
+          if ! codesign -dvv "$DYLIB" 2>&1 | grep -q "74RS4MJ2T8"; then
+            echo "ERROR: bundled libskillmatch_parser.dylib is not signed by Developer ID (team 74RS4MJ2T8)"
+            exit 1
+          fi
+          # Reseal the bundle wrapper (non-deep: leaves nested signatures intact).
+          codesign --force --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$APP"
+          echo "--- devproven entitlements (expect disable-library-validation) ---"
+          codesign -d --entitlements - "$APP/Contents/MacOS/devproven" || true
+          echo "--- verify bundle seal ---"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Notarize and staple .app
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri build --target aarch64-apple-darwin
+        run: |
+          set -euo pipefail
+          APP="skillmatch-js/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/DevProven.app"
+          ditto -c -k --keepParent "$APP" /tmp/DevProven.zip
+          xcrun notarytool submit /tmp/DevProven.zip \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+
+      # Build the DMG from the stapled .app (Tauri's dmg step was skipped so it
+      # can't ship the pre-re-sign app). create-dmg gives the standard
+      # drag-to-Applications layout; hdiutil is a plain fallback.
+      - name: Build, sign, notarize and staple DMG
+        env:
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Jkodez Innovations Oy (74RS4MJ2T8)"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="skillmatch-js/apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle"
+          APP="$BUNDLE_DIR/macos/DevProven.app"
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF" == refs/tags/v* ]] || VERSION="0.0.0-dev"
+          # Tag names are attacker-influenceable; VERSION flows into a filename
+          # and `rm -f`. Reject anything that isn't a plain semver to block
+          # path-traversal / metacharacters before it touches the filesystem.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "ERROR: refusing to build DMG for non-semver VERSION: '$VERSION'"
+            exit 1
+          fi
+          mkdir -p "$BUNDLE_DIR/dmg"
+          DMG="$BUNDLE_DIR/dmg/DevProven_${VERSION}_aarch64.dmg"
+          rm -f "$DMG"
+          brew install create-dmg
+          create-dmg \
+            --volname "DevProven" \
+            --app-drop-link 450 160 \
+            --icon "DevProven.app" 150 160 \
+            --window-size 600 320 \
+            "$DMG" "$APP" \
+            || hdiutil create -volname DevProven -srcfolder "$APP" -ov -format UDZO "$DMG"
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$DMG"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

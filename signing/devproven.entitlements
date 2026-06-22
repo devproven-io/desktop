@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for the bundled `devproven` .NET analyzer CLI (sidecar).
+
+      It is published self-contained single-file with
+      IncludeNativeLibrariesForSelfExtract=true, so at startup it extracts the
+      CoreCLR native libraries (libcoreclr.dylib, libclrjit.dylib, …) to
+      ~/.net/devproven/<hash>/ and dlopen()s them. Those extracted dylibs are
+      NOT signed by our Developer ID, so under the hardened runtime macOS
+      library validation kills the process (SIGKILL / "Failed to create
+      CoreCLR, HRESULT: 0x80070008"). These entitlements are Microsoft's
+      documented set for notarizing self-contained .NET apps on macOS:
+        - disable-library-validation: allow loading the unsigned extracted libs
+        - allow-jit + allow-unsigned-executable-memory: CoreCLR JIT writes exec memory
+        - allow-dyld-environment-variables: single-file host sets DOTNET_*/DYLD_* vars
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+</dict>
+</plist>
