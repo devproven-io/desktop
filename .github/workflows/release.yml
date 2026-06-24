@@ -1,0 +1,102 @@
+name: Release
+
+# Manual "release button" — the CI equivalent of release.bat. It does NOT build
+# anything itself: it computes the next version and creates + pushes the version
+# tags (vX.Y.Z for desktop, cli-vX.Y.Z for the CLI). Those tag pushes trigger the
+# existing build pipelines (desktop-release.yml on v*, nuget-publish.yml on cli-v*).
+#
+# Why a PAT: a tag pushed with the default GITHUB_TOKEN does NOT trigger other
+# workflows (GitHub's loop-prevention). Pushing via RELEASE_PAT makes the tag look
+# like a user push, so the build workflows fire. One-time setup:
+#   1. Create a PAT with `contents: write` (classic: `repo`) on devproven-io/desktop.
+#   2. Add it as the repo secret RELEASE_PAT.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version e.g. 0.3.0 (leave empty to auto-bump the patch).'
+        type: string
+        required: false
+      target:
+        description: 'What to release'
+        type: choice
+        options: [both, desktop, cli]
+        default: both
+      dry_run:
+        description: 'Print the plan without creating/pushing tags'
+        type: boolean
+        default: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (PAT so tag pushes trigger the build workflows)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Compute version + plan
+        id: plan
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          LATEST_DESKTOP=$(git tag --sort=-version:refname | grep '^v' | grep -v '^cli-' | head -1 || true)
+          LATEST_CLI=$(git tag --sort=-version:refname | grep '^cli-v' | head -1 || true)
+          LATEST_DESKTOP=${LATEST_DESKTOP:-v0.0.0}
+          LATEST_CLI=${LATEST_CLI:-cli-v0.0.0}
+          echo "Latest desktop tag: $LATEST_DESKTOP"
+          echo "Latest CLI tag:     $LATEST_CLI"
+
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            D="${LATEST_DESKTOP#v}"
+            C="${LATEST_CLI#cli-v}"
+            HIGHER=$(printf '%s\n%s\n' "$D" "$C" | sort -V | tail -1)
+            IFS='.' read -r MA MI PA <<< "$HIGHER"
+            VERSION="${MA}.${MI}.$((PA + 1))"
+            echo "Auto-bumped $HIGHER -> $VERSION"
+          fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version '$VERSION' (expected X.Y.Z)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "### Release plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dry run: \`${{ inputs.dry_run }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create & push tags
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          push_tag () {
+            local tag="$1"
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "::error::Tag $tag already exists — bump the version instead of re-releasing."
+              exit 1
+            fi
+            git tag "$tag"
+            git push origin "$tag"
+            echo "Pushed $tag"
+          }
+
+          # target=desktop -> only v*, target=cli -> only cli-v*, both -> both.
+          if [ "$TARGET" != "cli" ]; then push_tag "v$VERSION"; fi
+          if [ "$TARGET" != "desktop" ]; then push_tag "cli-v$VERSION"; fi
+
+          echo "Tags pushed. Watch the triggered builds in the Actions tab." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: echo "DRY RUN — would release ${{ steps.plan.outputs.version }} (target ${{ inputs.target }}). No tags created."
