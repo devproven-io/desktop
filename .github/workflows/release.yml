@@ -39,6 +39,13 @@ jobs:
 
       - name: Compute version + plan
         id: plan
+        # Inputs are passed via env, NEVER interpolated into the script body —
+        # `version` is free text, so `${{ inputs.version }}` inline would be a
+        # shell-injection / PAT-exfiltration vector. As env vars they're inert data.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           git fetch --tags --force
@@ -50,7 +57,7 @@ jobs:
           echo "Latest desktop tag: $LATEST_DESKTOP"
           echo "Latest CLI tag:     $LATEST_CLI"
 
-          VERSION="${{ inputs.version }}"
+          VERSION="$INPUT_VERSION"
           if [ -z "$VERSION" ]; then
             D="${LATEST_DESKTOP#v}"
             C="${LATEST_CLI#cli-v}"
@@ -67,8 +74,8 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "### Release plan" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Dry run: \`${{ inputs.dry_run }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target: \`$INPUT_TARGET\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dry run: \`$INPUT_DRY_RUN\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create & push tags
         if: ${{ !inputs.dry_run }}
@@ -99,4 +106,7 @@ jobs:
 
       - name: Dry-run summary
         if: ${{ inputs.dry_run }}
-        run: echo "DRY RUN — would release ${{ steps.plan.outputs.version }} (target ${{ inputs.target }}). No tags created."
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: echo "DRY RUN — would release $VERSION (target $TARGET). No tags created."
